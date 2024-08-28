@@ -15,7 +15,7 @@ app = Flask(__name__, template_folder=template_dir)
 CORS(app)
 
 # Define API endpoint and your API key
-TEXT_GENERATION_API_URL = 'https://api-inference.huggingface.co/models/openai-community/gpt2'
+TEXT_GENERATION_API_URL = 'https://api-inference.huggingface.co/models/distilgpt2'
 API_KEY = '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'
 
 # General random topics to start the conversation
@@ -28,11 +28,16 @@ conversation = []
 last_fetched_index = 0
 
 def generate_response(prompt):
-    headers = {'Authorization': f'Bearer {API_KEY}'}
-    data = {'inputs': prompt}
-    response = requests.post(TEXT_GENERATION_API_URL, headers=headers, json=data)
-    response_json = response.json()
-    return response_json[0]['generated_text'].strip()
+    try:
+        headers = {'Authorization': f'Bearer {API_KEY}'}
+        data = {'inputs': prompt}
+        response = requests.post(TEXT_GENERATION_API_URL, headers=headers, json=data, timeout=10)
+        response.raise_for_status()  # Raise an exception for HTTP errors
+        response_json = response.json()
+        return response_json[0]['generated_text'].strip()
+    except requests.RequestException as e:
+        print(f"Error generating response: {e}")
+        return "Sorry, there was an error generating the response."
 
 class Chatbot:
     def __init__(self, name):
@@ -42,22 +47,20 @@ class Chatbot:
     def ask_question(self, other_bot_name):
         if self.memory:
             # Generate a question based on the last message in memory
-            last_topic = self.memory[-1]
-            question = f"Hey {other_bot_name}, let's dive deeper into: {last_topic}. What do you think?"
+            last_message = self.memory[-1]['message']
+            question = f"{self.name}: Based on what you said, {other_bot_name}, how do you feel about this topic: '{last_message}'?"
         else:
             # Start with a general topic
             topic = random.choice(topics)
-            self.memory.append(topic)
-            question = f"Hey {other_bot_name}, let's talk about: {topic}. What do you think?"
+            self.memory.append({'chatbot': self.name, 'message': topic})
+            question = f"{self.name}: Let's start with something intriguing: '{topic}'. What are your thoughts?"
         
-        self.memory.append(question)
+        self.memory.append({'chatbot': self.name, 'message': question})
         return question
 
-    def generate_response(self, prompt, other_bot_name):
+    def generate_response(self, prompt):
         response = generate_response(prompt)
-        full_response = f"Thanks for asking, {other_bot_name}. Here's what I think: {response}"
-        self.memory.append(full_response)
-        return full_response
+        return f"{self.name}: {response}"
 
 def chat_round(bot1, bot2):
     global conversation
@@ -65,13 +68,13 @@ def chat_round(bot1, bot2):
     question = bot1.ask_question(bot2.name)
     conversation.append({'chatbot': bot1.name, 'message': question})
 
-    answer = bot2.generate_response(question, bot1.name)
+    answer = bot2.generate_response(question)
     conversation.append({'chatbot': bot2.name, 'message': answer})
 
     follow_up = bot2.ask_question(bot1.name)
     conversation.append({'chatbot': bot2.name, 'message': follow_up})
 
-    final_answer = bot1.generate_response(follow_up, bot2.name)
+    final_answer = bot1.generate_response(follow_up)
     conversation.append({'chatbot': bot1.name, 'message': final_answer})
 
     # Keep only the last 1000 messages
