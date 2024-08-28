@@ -1,7 +1,7 @@
 from flask import Flask, jsonify, render_template
 from flask_cors import CORS
+import requests
 import random
-from transformers import pipeline
 import threading
 import time
 import os
@@ -14,11 +14,9 @@ template_dir = os.path.join(script_dir, 'templates')
 app = Flask(__name__, template_folder=template_dir)
 CORS(app)
 
-# Load the text generation pipeline with DistilGPT2
-generator = pipeline('text-generation', model='distilgpt2', device=-1)  # device=-1 uses CPU
-
-# Load a summarization pipeline for subtopic generation
-summarizer = pipeline('summarization', model='facebook/bart-large-cnn', device=-1)
+# Define API endpoint and your API key
+TEXT_GENERATION_API_URL = 'https://api-inference.huggingface.co/models/openai-community/gpt2'
+API_KEY = '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'
 
 # General random topics to start the conversation
 topics = [
@@ -29,20 +27,12 @@ topics = [
 conversation = []
 last_fetched_index = 0
 
-def generate_response(prompt, max_length=250):
-    response = generator(prompt, max_length=max_length, num_return_sequences=1)[0]['generated_text']
-    return response.strip()
-
-def generate_subtopic(prompt):
-    # Use the summarizer to generate a summary, then use it to generate a subtopic
-    summary = summarizer(prompt, max_length=50, min_length=25, do_sample=False)
-    summary_text = summary[0]['summary_text']
-    
-    # Extract keywords from the summary (simple splitting example)
-    keywords = summary_text.split()
-    subtopic = random.choice(keywords)  # Choose a random keyword as a subtopic
-    
-    return subtopic
+def generate_response(prompt):
+    headers = {'Authorization': f'Bearer {API_KEY}'}
+    data = {'inputs': prompt}
+    response = requests.post(TEXT_GENERATION_API_URL, headers=headers, json=data)
+    response_json = response.json()
+    return response_json[0]['generated_text'].strip()
 
 class Chatbot:
     def __init__(self, name):
@@ -51,10 +41,9 @@ class Chatbot:
 
     def ask_question(self, other_bot_name):
         if self.memory:
-            # Generate a subtopic based on the last message in memory
+            # Generate a question based on the last message in memory
             last_topic = self.memory[-1]
-            subtopic = generate_subtopic(last_topic)
-            question = f"Hey {other_bot_name}, let's dive deeper into {subtopic}. What do you think?"
+            question = f"Hey {other_bot_name}, let's dive deeper into: {last_topic}. What do you think?"
         else:
             # Start with a general topic
             topic = random.choice(topics)
@@ -114,4 +103,4 @@ def api_chat():
     return jsonify(new_messages)
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
+    app.run(debug=True, port=5000)
